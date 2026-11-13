@@ -43,6 +43,15 @@ class SecureStore(context: Context) {
         get() = prefs.getBoolean("auto", false)
         set(v) = prefs.edit().putBoolean("auto", v).apply()
 
+    /** 间隔和启用状态一起保存，避免出现 interval=0 但 auto=true 的中间状态。 */
+    fun setSyncInterval(minutes: Int) {
+        val normalized = AutoSyncPolicy.normalizeInterval(minutes)
+        prefs.edit()
+            .putInt("interval", normalized)
+            .putBoolean("auto", normalized != AutoSyncPolicy.NONE)
+            .apply()
+    }
+
     var skipDeclined: Boolean
         get() = prefs.getBoolean("skipDeclined", true)
         set(v) = prefs.edit().putBoolean("skipDeclined", v).apply()
@@ -85,7 +94,7 @@ class SecureStore(context: Context) {
         set(v) = prefs.edit().putInt("back", v).apply()
 
     var windowAheadDays: Int
-        get() = prefs.getInt("ahead", 90)
+        get() = prefs.getInt("ahead", DEFAULT_AHEAD_DAYS)
         set(v) = prefs.edit().putInt("ahead", v).apply()
 
     private fun key(): SecretKey {
@@ -119,6 +128,7 @@ class SecureStore(context: Context) {
     }
 
     private companion object {
+        const val DEFAULT_AHEAD_DAYS = 30
         const val ALIAS = "refresh_token_key"
     }
 }

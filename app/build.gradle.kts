@@ -11,8 +11,8 @@ android {
         applicationId = "com.maxyuan.outlookcalsync"
         minSdk = 26
         targetSdk = 35
-        versionCode = 10
-        versionName = "1.9"
+        versionCode = 20
+        versionName = "1.19"
     }
 
     buildTypes {
@@ -31,4 +31,5 @@ dependencies {
     implementation("androidx.work:work-runtime-ktx:2.12.0")
     implementation("androidx.core:core-ktx:1.16.0")
     testImplementation("junit:junit:4.13.2")
+    testImplementation("org.json:json:20240303")
 }

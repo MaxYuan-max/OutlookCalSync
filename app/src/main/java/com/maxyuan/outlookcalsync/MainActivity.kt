@@ -39,13 +39,14 @@ class MainActivity : Activity() {
     private lateinit var windows: EditText
 
     private val intervals = listOf(
+        AutoSyncPolicy.NONE to "无（仅手动同步）",
         15 to "15 分钟", 30 to "30 分钟", 60 to "1 小时",
         120 to "2 小时", 360 to "6 小时", 720 to "12 小时", 1440 to "24 小时",
     )
 
     // SharedPreferences 只保留弱引用, 必须用成员变量持有, 否则会被回收后不再回调
     private val prefsListener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
-        if (key == "last") runOnUiThread { refreshStatus() }
+        if (key == "last" || key == "auto" || key == "interval") runOnUiThread { refreshStatus() }
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -77,13 +78,15 @@ class MainActivity : Activity() {
         intervalSpinner = Spinner(this).apply {
             adapter = ArrayAdapter(this@MainActivity, android.R.layout.simple_spinner_dropdown_item,
                 intervals.map { it.second })
-            setSelection(intervals.indexOfFirst { it.first == store.intervalMinutes }.takeIf { it >= 0 } ?: 0)
+            val activeMinutes = AutoSyncPolicy.activeIntervalMinutes(store.autoSync, store.intervalMinutes)
+            setSelection(intervals.indexOfFirst { it.first == activeMinutes }.takeIf { it >= 0 } ?: 0)
             onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
                 override fun onItemSelected(p: AdapterView<*>?, v: View?, pos: Int, id: Long) {
                     val minutes = intervals[pos].first
-                    if (minutes == store.intervalMinutes) return
-                    store.intervalMinutes = minutes
-                    if (store.autoSync) { SyncWorker.schedule(this@MainActivity); toast("间隔已改为 ${intervals[pos].second}") }
+                    val active = AutoSyncPolicy.activeIntervalMinutes(store.autoSync, store.intervalMinutes)
+                    if (minutes == active) return
+                    SyncWorker.setInterval(this@MainActivity, minutes)
+                    toast(if (minutes == AutoSyncPolicy.NONE) "已关闭自动同步，仅手动同步" else "间隔已改为 ${intervals[pos].second}")
                     refreshStatus()
                 }
                 override fun onNothingSelected(p: AdapterView<*>?) {}
@@ -97,7 +100,7 @@ class MainActivity : Activity() {
         root.addView(label("Client ID")); root.addView(client)
         root.addView(label("Refresh token (加密保存在本机)")); root.addView(token)
         root.addView(button("从剪贴板粘贴 refresh token") { pasteToken() })
-        root.addView(label("自动同步间隔 (系统限制最短 15 分钟)")); root.addView(intervalSpinner)
+        root.addView(label("自动同步间隔（选“无”关闭；定时同步最短 15 分钟）")); root.addView(intervalSpinner)
 
         root.addView(CheckBox(this).apply {
             text = "有提醒的会议用\"响铃\"提醒 (仅 ColorOS 日历支持)"; isChecked = store.ringReminder
@@ -128,7 +131,10 @@ class MainActivity : Activity() {
         root.addView(button("保存并立即同步") { saveAndSync() })
         root.addView(button("允许后台运行 (忽略电池优化)") { requestBatteryExemption() })
         root.addView(button("停止自动同步") {
-            SyncWorker.cancel(this); toast("已停止自动同步")
+            SyncWorker.cancel(this)
+            intervalSpinner.setSelection(0)
+            refreshStatus()
+            toast("已停止自动同步")
         })
         root.addView(status)
 
@@ -177,7 +183,7 @@ class MainActivity : Activity() {
             toast("三项都要填"); return
         }
         store.lastResult = "已提交同步请求, 等待执行…"
-        SyncWorker.schedule(this)
+        SyncWorker.setInterval(this, intervals[intervalSpinner.selectedItemPosition].first)
         SyncWorker.syncNow(this)
         toast("已保存, 正在同步…")
     }
@@ -211,7 +217,8 @@ class MainActivity : Activity() {
                 checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
             appendLine("失败通知: ${if (notifOk) "可用" else "未授权(同步失败时你收不到提醒, 请在系统设置里允许通知)"}")
             appendLine("Refresh token: ${if (store.refreshToken.isEmpty()) "未设置" else "已保存"}")
-            appendLine("自动同步: ${if (store.autoSync) "开启, 每 ${intervalLabel(store.intervalMinutes)}" else "关闭"}")
+            val activeMinutes = AutoSyncPolicy.activeIntervalMinutes(store.autoSync, store.intervalMinutes)
+            appendLine("自动同步: ${if (activeMinutes != AutoSyncPolicy.NONE) "开启, 每 ${intervalLabel(activeMinutes)}" else "无（仅手动同步）"}")
             appendLine()
             append("上次同步: ${store.lastResult.ifEmpty { "(尚未运行)" }}")
         }
